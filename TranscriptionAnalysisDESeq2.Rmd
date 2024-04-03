@@ -1,0 +1,153 @@
+---
+title: "Transcription Analysis"
+author: "Eli Markworth"
+date: "2024-02-06"
+output: html_document
+---
+
+# SRP Data: Expression Before and After Treatment
+
+Libraries in Use
+```{r message=FALSE, warning=FALSE}
+library(DESeq2)
+library(tidyverse)
+```
+
+
+###Get Data
+
+I am using the SRP data as supplied by Bioconductor. The scaled counts contain information on the genes and their expression levels. These expression levels are measured for each subject in the data. The metadata file will be used to add proper labels when creating the DESeq data object.
+```{r}
+count.data <- read.csv("SRP026387_scaledcounts.csv")
+head(count.data)
+
+count.metadata <- read.csv("SRP026387_metadata.csv")
+head(count.metadata)
+```
+I want to double check that the subject IDs are the same in each file. 
+```{r}
+names(count.data)[-1]
+count.metadata$id
+
+all(names(count.data)[-1] == count.metadata$id)
+```
+
+
+###Make DESeq2 Object
+
+We make the DESeq dataset object below, using the *prepost* variable as our design. The tidy variable is set to true, so that the row names become the gene names. 
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = count.data,
+                              colData = count.metadata,
+                              design = ~prepost, 
+                              tidy = TRUE)
+
+dds
+```
+###Run DESeq Function
+
+Here we make the *dds* object a proper DESeq object. We also view the results in two ways, the latter being properly formatted.
+```{r}
+dds <- DESeq(dds)
+
+# Showing Results Table
+res <- results(dds)
+head(results(dds, tidy=TRUE))
+```
+
+###Summary of Results
+
+We can see a summary of the results with *summary*. It shows low outliers, but many low count values.
+```{r}
+summary(res)
+```
+
+###Sorting Results by P-Value
+
+We can sort the genes by p-value, the genes with the lowest p-values being those that we are most sure had a difference between pre and post-treatment.
+```{r}
+res <- res[order(res$padj),]
+head(res)
+```
+
+We can also filter for the genes with the biggest changes of expression, and had significant p-values (even though many of these such genes had significant p-values anyways).
+```{r}
+res.LFC <- res[which(res$padj < 0.05),]
+res.LFC <- res.LFC[rev(order(abs(res.LFC$log2FoldChange))),]
+head(res.LFC)
+```
+
+
+###Plotting Counts, Before and After Treatment
+
+To the genes that had the most significant p-values, we can compare counts.
+```{r}
+par(mfrow=c(2,3))
+
+plotCounts(dds, gene="ENSG00000151503", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000249599", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000228278", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000116133", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000278709", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000229314", intgroup="prepost")
+```
+
+Using ggplot to enhance our visual aid.
+```{r}
+plotCounts(dds, gene="ENSG00000151503", intgroup="prepost", returnData = TRUE) %>%
+  ggplot(aes(prepost, count)) + 
+  geom_boxplot(aes(fill=prepost)) + 
+  ggtitle("ENSG00000151503 Pre and Post Treatment")
+```
+
+
+We can also compare counts from the genes that had the largest change in expression.
+```{r}
+par(mfrow=c(2,3))
+
+plotCounts(dds, gene="ENSG00000228278", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000104760", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000229314", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000248809", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000228740", intgroup="prepost")
+plotCounts(dds, gene="ENSG00000278406", intgroup="prepost")
+```
+
+
+###Volcano Plot
+
+The data in red are statistically significant and have an expression change of 4 times or more. 
+```{r}
+par(mfrow=c(1,1))
+
+with(res, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-3,3)))
+with(subset(res, padj<.01 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(res, padj<.01 & abs(log2FoldChange)>2), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+```
+```{r}
+par(mfrow=c(1,1))
+
+with(res.LFC, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot on Large LFC", xlim=c(-3,3)))
+
+with(subset(res.LFC, padj<.01 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(res.LFC, padj<.01 & abs(log2FoldChange)>2), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+```
+
+###Principle Components Analysis
+
+
+```{r}
+vstdata <- vst(dds, blind=TRUE)
+plotPCA(vstdata, intgroup="prepost")
+```
+
+###References
+
+Count-Based Differential Expression Analysis of RNA-seq Data. (n.d.). Bioconnector.github.io. Retrieved April 3, 2024, from https://bioconnector.github.io/workshops/r-rnaseq-airway.html
+
+Lashlock. (n.d.). DESEQ2 R Tutorial. Lashlock.github.io. https://lashlock.github.io/compbio/R_presentation.html
+
+Love, M.I., Huber, W., Anders, S. (2014) Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2. Genome Biology, 15:550. 10.1186/s13059-014-0550-8
+
+
+
